@@ -15,7 +15,7 @@ class RobinhoodCollector(object):
         self.config = config
 
     def collect(self):
-        labels = ['filesystem', 'lhsm.status', 'type']
+        labels = ['filesystem', 'lhsm_status', 'type']
         gauge_count = GaugeMetricFamily(
             'robinhood_count', 'Files count', labels=labels)
         gauge_volume = GaugeMetricFamily(
@@ -29,7 +29,7 @@ class RobinhoodCollector(object):
         process = subprocess.Popen(['rbh-report', '-f', self.config,
                                    '--status-info', 'lhsm', '--csv'],
                                    stdout=subprocess.PIPE, stderr=DEVNULL)
-        out = csv.reader(process.communicate()[0].splitlines()[4:-3])
+        out = csv.reader(process.communicate()[0].splitlines()[4:-2])
         for row in out:
             info = ([x.strip() for x in row])
             hsm_status = info[0] or 'none'

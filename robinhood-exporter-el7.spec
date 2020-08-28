@@ -1,6 +1,6 @@
 Name:	  robinhood-exporter
-Version:  0.0.2
-%global gittag 0.0.2
+Version:  0.0.3
+%global gittag 0.0.3
 Release:  1%{?dist}
 Summary:  Prometheus exporter for Robinhood stats on Lustre
 
@@ -38,6 +38,8 @@ rm -rf $RPM_BUILD_ROOT
 %{_unitdir}/robinhood-exporter.service
 
 %changelog
+* Fri Aug 28 2020 Simon Guilbault <simon.guilbault@calculquebec.ca> 0.0.3-1
+- Cannot use a dot in a label and fixing parsing of rbh-report
 * Fri Aug 28 2020 Simon Guilbault <simon.guilbault@calculquebec.ca> 0.0.2-1
 - Adding config path to robinhood's config
 * Fri Aug 28 2020 Simon Guilbault <simon.guilbault@calculquebec.ca> 0.0.1-1
