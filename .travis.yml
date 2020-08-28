@@ -18,3 +18,13 @@ before_install:
 script:
 - flake8 robinhood-exporter.py
 - docker run -v ${PWD}:/sources -v ${PWD}:/output:Z ${DOCKER_IMAGE}:${OS_TYPE}-${OS_VERSION}
+deploy:
+  provider: releases
+  api_key:
+    secure: cxwTmPOmBFPLwuTiI0vTFnspF26Y5qmYS4Q6/rGQHFbWR4XVYP6Q0l/enQbUjY2Vx2jlU35Rz7yA9jLkyCs2KRQkCRyA+FYt/tacIUsu+Jg0yUqlWetRqyb7yuiWEgifUtjnXomFVgk/CvOrkWhtuFPiYQ5o2mCuSV2kv2DOvstCJYprr91Y5DQdLHJ6VTYgLsrVRtlejDkuv/1To2LeOXdsmvNr+S2rjtyPUZjNvKmAAbn5ByZrMMUf/FwV5mHuGea+dY0QzcDPoe6IphzZyrMDJ7fqZh43oWwKYmeVV9efbZ7nLdHwdra4MV7ywibI8VFYzUJZLBeRMa+aFpXWP0Nzuu6Yl81LqspzJ51NlwTQE5Bym2qQMIveBEr6mgrItYTz1wOM/+6Z8CjqbDuie6FKqQ598JJAXGA3MKYJ815Sss7BuzSFi8AMIFcj3/lskHtYFhq9o9+XuKJa2DrFYS8UobaXJWi78uNlXLojq95JmXqjdkMN0EDemJc6A+6iBqJivLiWoyhu3aVPgomXRBT+pJdAiplTmlcqH7l+D3/kFyIgLLwMhdUsgznWul389bllezmXFFFDgstP5gaxowpJ0j9t51t063HarEABzAq4IcfaofOfzgzMLDjXa9F6fK7M52CwM2KFoOPdI3c9thyK6yLJWXJJgxrUZWOTwLY=
+  file: "*.rpm"
+  draft: true
+  file_glob: true
+  skip_cleanup: true
+  on:
+    tags: true
