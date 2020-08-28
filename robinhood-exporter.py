@@ -10,8 +10,9 @@ from prometheus_client import start_http_server
 
 
 class RobinhoodCollector(object):
-    def __init__(self, fs):
+    def __init__(self, fs, config):
         self.fs = fs
+        self.config = config
 
     def collect(self):
         labels = ['filesystem', 'lhsm.status', 'type']
@@ -25,7 +26,7 @@ class RobinhoodCollector(object):
             'robinhood_average', 'Files average size', labels=labels)
 
         DEVNULL = open(os.devnull, 'wb')
-        process = subprocess.Popen(['rbh-report', '-f', self.fs,
+        process = subprocess.Popen(['rbh-report', '-f', self.config,
                                    '--status-info', 'lhsm', '--csv'],
                                    stdout=subprocess.PIPE, stderr=DEVNULL)
         out = csv.reader(process.communicate()[0].splitlines()[4:-3])
@@ -53,7 +54,11 @@ if __name__ == '__main__':
     parser.add_argument(
         '--fs',
         type=str,
-        help='Filesystem name to check')
+        help='Filesystem name to use in the labels')
+    parser.add_argument(
+        '--config',
+        type=str,
+        help='rbh-report config path')
 
     args = parser.parse_args()
     if 'FS' in os.environ:
@@ -64,7 +69,16 @@ if __name__ == '__main__':
         else:
             print('FS is not defined as a arg or env var')
             sys.exit(1)
+    if 'CONFIG' in os.environ:
+        config = os.environ['CONFIG']
+    else:
+        if args.config:
+            config = args.config
+        else:
+            print('CONFIG is not defined as a arg or env var')
+            sys.exit(1)
+
     start_http_server(args.port)
-    REGISTRY.register(RobinhoodCollector(fs))
+    REGISTRY.register(RobinhoodCollector(fs, config))
     while True:
         time.sleep(1)

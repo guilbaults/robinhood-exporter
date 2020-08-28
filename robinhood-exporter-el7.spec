@@ -1,6 +1,6 @@
 Name:	  robinhood-exporter
-Version:  0.0.1
-%global gittag 0.0.1
+Version:  0.0.2
+%global gittag 0.0.2
 Release:  1%{?dist}
 Summary:  Prometheus exporter for Robinhood stats on Lustre
 
@@ -38,5 +38,7 @@ rm -rf $RPM_BUILD_ROOT
 %{_unitdir}/robinhood-exporter.service
 
 %changelog
+* Fri Aug 28 2020 Simon Guilbault <simon.guilbault@calculquebec.ca> 0.0.2-1
+- Adding config path to robinhood's config
 * Fri Aug 28 2020 Simon Guilbault <simon.guilbault@calculquebec.ca> 0.0.1-1
 - Initial release
