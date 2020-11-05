@@ -31,12 +31,15 @@ class RobinhoodCollector(object):
                                    stdout=subprocess.PIPE, stderr=DEVNULL)
         out = csv.reader(process.communicate()[0].splitlines()[4:-2])
         for row in out:
-            info = ([x.strip() for x in row])
-            hsm_status = info[0] or 'none'
-            gauge_count.add_metric([self.fs, hsm_status, info[1]], info[2])
-            gauge_volume.add_metric([self.fs, hsm_status, info[1]], info[3])
-            gauge_spc_used.add_metric([self.fs, hsm_status, info[1]], info[4])
-            gauge_average.add_metric([self.fs, hsm_status, info[1]], info[5])
+            if 'file' in row[1]:
+                info = ([x.strip() for x in row])
+                hsm_status = info[0] or 'none'
+                gauge_count.add_metric([self.fs, hsm_status, info[1]], info[2])
+                gauge_volume.add_metric([self.fs, hsm_status, info[1]], info[3])
+                gauge_spc_used.add_metric([self.fs, hsm_status, info[1]], info[4])
+                if int(info[2]) > 0:
+                    # no average size if count == 0
+                    gauge_average.add_metric([self.fs, hsm_status, info[1]], info[5])
         yield gauge_count
         yield gauge_volume
         yield gauge_spc_used
