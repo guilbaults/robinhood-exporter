@@ -22,6 +22,10 @@ class RobinhoodCollector(object):
             password_file = re.findall(r'password_file = (.*);', content)[0]
             with open(password_file) as pf:
                 self.password = pf.read().strip()
+            if 'includes/lhsm.inc' in content:
+                self.lhsm_enabled = True
+            else:
+                self.lhsm_enabled = False
 
     def query(self, sql):
         db = pymysql.connect(
@@ -38,36 +42,46 @@ class RobinhoodCollector(object):
     def last_access(self, i):
         older_than = int(time.time() - i[1])
         newer_than = int(time.time() - i[2])
-        result = self.query("select count(*) as count,sum(size) as size, sum(blocks) as blocks from ENTRIES where last_access BETWEEN {} AND {}".format(newer_than, older_than))[0]
+        result = self.query("select count(*) as count,sum(size) as size, \
+sum(blocks) as blocks from ENTRIES where last_access \
+BETWEEN {} AND {}".format(newer_than, older_than))[0]
         result['range'] = i[0]
         return result
 
     def last_mod(self, i):
         older_than = int(time.time() - i[1])
         newer_than = int(time.time() - i[2])
-        result = self.query("select count(*) as count,sum(size) as size, sum(blocks) as blocks from ENTRIES where last_mod BETWEEN {} AND {}".format(newer_than, older_than))[0]
+        result = self.query("select count(*) as count,sum(size) as size, \
+sum(blocks) as blocks from ENTRIES where last_mod \
+BETWEEN {} AND {}".format(newer_than, older_than))[0]
         result['range'] = i[0]
         return result
 
     def collect(self):
-        labels = ['filesystem', 'lhsm_status', 'type']
-        gauge_count = GaugeMetricFamily(
-            'robinhood_count', 'Files count', labels=labels)
-        gauge_volume = GaugeMetricFamily(
-            'robinhood_volume', 'Files volume', labels=labels)
-        gauge_spc_used = GaugeMetricFamily(
-            'robinhood_spc_used', 'Files space used', labels=labels)
+        if self.lhsm_enabled:
+            labels = ['filesystem', 'lhsm_status', 'type']
+            gauge_count = GaugeMetricFamily(
+                'robinhood_count', 'Files count', labels=labels)
+            gauge_volume = GaugeMetricFamily(
+                'robinhood_volume', 'Files volume', labels=labels)
+            gauge_spc_used = GaugeMetricFamily(
+                'robinhood_spc_used', 'Files space used', labels=labels)
 
-        stats = self.query("select sum(count) as count,sum(size) as size,sum(blocks) as blocks,lhsm_status,type from ACCT_STAT group by lhsm_status,type")
-        for row in stats:
-            if row['lhsm_status'] == '':
-                row['lhsm_status'] = 'none'
-            gauge_count.add_metric([self.fs, row['lhsm_status'], row['type']], row['count'])
-            gauge_volume.add_metric([self.fs, row['lhsm_status'], row['type']], row['size'])
-            gauge_spc_used.add_metric([self.fs, row['lhsm_status'], row['type']], row['blocks'])
-        yield gauge_count
-        yield gauge_volume
-        yield gauge_spc_used
+            stats = self.query("select sum(count) as count,sum(size) as size, \
+sum(blocks) as blocks,lhsm_status,type from ACCT_STAT \
+group by lhsm_status,type")
+            for row in stats:
+                if row['lhsm_status'] == '':
+                    row['lhsm_status'] = 'none'
+                gauge_count.add_metric(
+                    [self.fs, row['lhsm_status'], row['type']], row['count'])
+                gauge_volume.add_metric(
+                    [self.fs, row['lhsm_status'], row['type']], row['size'])
+                gauge_spc_used.add_metric(
+                    [self.fs, row['lhsm_status'], row['type']], row['blocks'])
+            yield gauge_count
+            yield gauge_volume
+            yield gauge_spc_used
 
         date_ranges = [
             ('00s-15m', 0, 15*60),
@@ -82,36 +96,54 @@ class RobinhoodCollector(object):
             ('>1Y', 365*24*60*60, 10*365*24*60*60),
         ]
 
-
         labels_heat = ['filesystem', 'range']
         gauge_count_heat_atime = GaugeMetricFamily(
-            'robinhood_count_heat_last_access', 'Files count heat by last access date range', labels=labels_heat)
+            'robinhood_count_heat_last_access',
+            'Files count heat by last access date range',
+            labels=labels_heat)
         gauge_volume_heat_atime = GaugeMetricFamily(
-            'robinhood_volume_heat_last_access', 'Files volume heat by last access date range', labels=labels_heat)
+            'robinhood_volume_heat_last_access',
+            'Files volume heat by last access date range',
+            labels=labels_heat)
         gauge_spc_used_heat_atime = GaugeMetricFamily(
-            'robinhood_spc_used_heat_last_access', 'Files space used heat by last access date range', labels=labels_heat)
+            'robinhood_spc_used_heat_last_access',
+            'Files space used heat by last access date range',
+            labels=labels_heat)
         gauge_count_heat_mtime = GaugeMetricFamily(
-            'robinhood_count_heat_last_mod', 'Files count heat by last modification date range', labels=labels_heat)
+            'robinhood_count_heat_last_mod',
+            'Files count heat by last modification date range',
+            labels=labels_heat)
         gauge_volume_heat_mtime = GaugeMetricFamily(
-            'robinhood_volume_heat_last_mod', 'Files volume heat by last modification date range', labels=labels_heat)
+            'robinhood_volume_heat_last_mod',
+            'Files volume heat by last modification date range',
+            labels=labels_heat)
         gauge_spc_used_heat_mtime = GaugeMetricFamily(
-            'robinhood_spc_used_heat_last_mod', 'Files space used heat by last modification date range', labels=labels_heat)
+            'robinhood_spc_used_heat_last_mod',
+            'Files space used heat by last modification date range',
+            labels=labels_heat)
 
         with Pool(processes=20) as pool:
             for item in pool.map(self.last_access, date_ranges):
-                gauge_count_heat_atime.add_metric([self.fs, item['range']], item['count'])
-                gauge_volume_heat_atime.add_metric([self.fs, item['range']], item['size'])
-                gauge_spc_used_heat_atime.add_metric([self.fs, item['range']], item['blocks'])
+                gauge_count_heat_atime.add_metric([self.fs, item['range']],
+                                                  item['count'])
+                gauge_volume_heat_atime.add_metric([self.fs, item['range']],
+                                                   item['size'])
+                gauge_spc_used_heat_atime.add_metric([self.fs, item['range']],
+                                                     item['blocks'])
             for item in pool.map(self.last_mod, date_ranges):
-                gauge_count_heat_mtime.add_metric([self.fs, item['range']], item['count'])
-                gauge_volume_heat_mtime.add_metric([self.fs, item['range']], item['size'])
-                gauge_spc_used_heat_mtime.add_metric([self.fs, item['range']], item['blocks'])
+                gauge_count_heat_mtime.add_metric([self.fs, item['range']],
+                                                  item['count'])
+                gauge_volume_heat_mtime.add_metric([self.fs, item['range']],
+                                                   item['size'])
+                gauge_spc_used_heat_mtime.add_metric([self.fs, item['range']],
+                                                     item['blocks'])
         yield gauge_count_heat_atime
         yield gauge_volume_heat_atime
         yield gauge_spc_used_heat_atime
         yield gauge_count_heat_mtime
         yield gauge_volume_heat_mtime
         yield gauge_spc_used_heat_mtime
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
