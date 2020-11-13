@@ -1,6 +1,6 @@
 Name:	  robinhood-exporter
-Version:  0.0.4
-%global gittag 0.0.4
+Version:  0.0.5
+%global gittag 0.0.5
 Release:  1%{?dist}
 Summary:  Prometheus exporter for Robinhood stats on Lustre
 
@@ -39,6 +39,8 @@ rm -rf $RPM_BUILD_ROOT
 %{_unitdir}/robinhood-exporter.service
 
 %changelog
+* Fri Nov 13 2020 Simon Guilbault <simon.guilbault@calculquebec.ca> 0.0.5-1
+- Moving long file heat queries in the background and adding stats for changelog processing
 * Fri Nov  6 2020 Simon Guilbault <simon.guilbault@calculquebec.ca> 0.0.4-1
 - Using python3, direct mysql access and pathos for multiprocessing
 * Fri Aug 28 2020 Simon Guilbault <simon.guilbault@calculquebec.ca> 0.0.3-1

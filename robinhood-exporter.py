@@ -14,6 +14,7 @@ class RobinhoodCollector(object):
     def __init__(self, fs, config):
         self.fs = fs
         self.config = config
+        self.heat_ready = False
         with open(config) as c:
             content = c.read()
             self.server = re.findall(r'server = (.*);', content)[0]
@@ -58,6 +59,43 @@ BETWEEN {} AND {}".format(newer_than, older_than))[0]
         return result
 
     def collect(self):
+        changelog_count = GaugeMetricFamily(
+            'robinhood_changelog_count', 'Changelog count',
+            labels=['filesystem', 'mdt', 'type'])
+        changelog_last = GaugeMetricFamily(
+            'robinhood_changelog_last_number', 'Changelog last action number',
+            labels=['filesystem', 'mdt', 'type'])
+        changelog_last_recv = GaugeMetricFamily(
+            'robinhood_changelog_last_received',
+            'Changelog last action received',
+            labels=['filesystem', 'mdt', 'type'])
+        changelog_last_proc = GaugeMetricFamily(
+            'robinhood_changelog_last_processed',
+            'Changelog last action processed',
+            labels=['filesystem', 'mdt', 'type'])
+
+        vars_q = self.query('select varname, value from VARS')
+        for v in vars_q:
+            if v['varname'].startswith('CL_Count_'):
+                cl_info = v['varname'].split('_')
+                changelog_count.add_metric(
+                    [self.fs, cl_info[2], cl_info[3]], v['value'])
+            if v['varname'].startswith('CL_Last'):
+                last = v['varname'][7:].split('_')
+                value = v['value'].split(':')
+
+                changelog_last.add_metric(
+                    [self.fs, last[1], last[0]], value[0])
+                changelog_last_recv.add_metric(
+                    [self.fs, last[1], last[0]], value[1])
+                changelog_last_proc.add_metric(
+                    [self.fs, last[1], last[0]], value[2])
+
+        yield changelog_count
+        yield changelog_last
+        yield changelog_last_recv
+        yield changelog_last_proc
+
         if self.lhsm_enabled:
             labels = ['filesystem', 'lhsm_status', 'type']
             gauge_count = GaugeMetricFamily(
@@ -83,6 +121,58 @@ group by lhsm_status,type")
             yield gauge_volume
             yield gauge_spc_used
 
+        if self.heat_ready:
+            # only add them if ready, skip otherwise for faster results
+            labels_heat = ['filesystem', 'range']
+            gauge_count_heat_atime = GaugeMetricFamily(
+                'robinhood_count_heat_last_access',
+                'Files count heat by last access date range',
+                labels=labels_heat)
+            gauge_volume_heat_atime = GaugeMetricFamily(
+                'robinhood_volume_heat_last_access',
+                'Files volume heat by last access date range',
+                labels=labels_heat)
+            gauge_spc_used_heat_atime = GaugeMetricFamily(
+                'robinhood_spc_used_heat_last_access',
+                'Files space used heat by last access date range',
+                labels=labels_heat)
+            gauge_count_heat_mtime = GaugeMetricFamily(
+                'robinhood_count_heat_last_mod',
+                'Files count heat by last modification date range',
+                labels=labels_heat)
+            gauge_volume_heat_mtime = GaugeMetricFamily(
+                'robinhood_volume_heat_last_mod',
+                'Files volume heat by last modification date range',
+                labels=labels_heat)
+            gauge_spc_used_heat_mtime = GaugeMetricFamily(
+                'robinhood_spc_used_heat_last_mod',
+                'Files space used heat by last modification date range',
+                labels=labels_heat)
+
+            for item in self.last_access_map:
+                gauge_count_heat_atime.add_metric(
+                    [self.fs, item['range']], item['count'])
+                gauge_volume_heat_atime.add_metric(
+                    [self.fs, item['range']], item['size'])
+                gauge_spc_used_heat_atime.add_metric(
+                    [self.fs, item['range']], item['blocks'])
+            for item in self.last_mod_map:
+                gauge_count_heat_mtime.add_metric(
+                    [self.fs, item['range']], item['count'])
+                gauge_volume_heat_mtime.add_metric(
+                    [self.fs, item['range']], item['size'])
+                gauge_spc_used_heat_mtime.add_metric(
+                    [self.fs, item['range']], item['blocks'])
+
+            yield gauge_count_heat_atime
+            yield gauge_volume_heat_atime
+            yield gauge_spc_used_heat_atime
+            yield gauge_count_heat_mtime
+            yield gauge_volume_heat_mtime
+            yield gauge_spc_used_heat_mtime
+            self.heat_ready = False
+
+    def update_heat(self):
         date_ranges = [
             ('00s-15m', 0, 15*60),
             ('15m-01h', 15*60, 60*60),
@@ -96,53 +186,10 @@ group by lhsm_status,type")
             ('>1Y', 365*24*60*60, 10*365*24*60*60),
         ]
 
-        labels_heat = ['filesystem', 'range']
-        gauge_count_heat_atime = GaugeMetricFamily(
-            'robinhood_count_heat_last_access',
-            'Files count heat by last access date range',
-            labels=labels_heat)
-        gauge_volume_heat_atime = GaugeMetricFamily(
-            'robinhood_volume_heat_last_access',
-            'Files volume heat by last access date range',
-            labels=labels_heat)
-        gauge_spc_used_heat_atime = GaugeMetricFamily(
-            'robinhood_spc_used_heat_last_access',
-            'Files space used heat by last access date range',
-            labels=labels_heat)
-        gauge_count_heat_mtime = GaugeMetricFamily(
-            'robinhood_count_heat_last_mod',
-            'Files count heat by last modification date range',
-            labels=labels_heat)
-        gauge_volume_heat_mtime = GaugeMetricFamily(
-            'robinhood_volume_heat_last_mod',
-            'Files volume heat by last modification date range',
-            labels=labels_heat)
-        gauge_spc_used_heat_mtime = GaugeMetricFamily(
-            'robinhood_spc_used_heat_last_mod',
-            'Files space used heat by last modification date range',
-            labels=labels_heat)
-
-        with Pool(processes=20) as pool:
-            for item in pool.map(self.last_access, date_ranges):
-                gauge_count_heat_atime.add_metric([self.fs, item['range']],
-                                                  item['count'])
-                gauge_volume_heat_atime.add_metric([self.fs, item['range']],
-                                                   item['size'])
-                gauge_spc_used_heat_atime.add_metric([self.fs, item['range']],
-                                                     item['blocks'])
-            for item in pool.map(self.last_mod, date_ranges):
-                gauge_count_heat_mtime.add_metric([self.fs, item['range']],
-                                                  item['count'])
-                gauge_volume_heat_mtime.add_metric([self.fs, item['range']],
-                                                   item['size'])
-                gauge_spc_used_heat_mtime.add_metric([self.fs, item['range']],
-                                                     item['blocks'])
-        yield gauge_count_heat_atime
-        yield gauge_volume_heat_atime
-        yield gauge_spc_used_heat_atime
-        yield gauge_count_heat_mtime
-        yield gauge_volume_heat_mtime
-        yield gauge_spc_used_heat_mtime
+        with Pool(processes=40) as pool:
+            self.last_access_map = pool.map(self.last_access, date_ranges)
+            self.last_mod_map = pool.map(self.last_mod, date_ranges)
+        self.heat_ready = True
 
 
 if __name__ == '__main__':
@@ -181,6 +228,9 @@ if __name__ == '__main__':
             sys.exit(1)
 
     start_http_server(args.port)
-    REGISTRY.register(RobinhoodCollector(fs, config))
+    rbh_collector = RobinhoodCollector(fs, config)
+    REGISTRY.register(rbh_collector)
+    rbh_collector.update_heat()
     while True:
-        time.sleep(1)
+        time.sleep(3600)
+        rbh_collector.update_heat()
