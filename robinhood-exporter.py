@@ -14,7 +14,7 @@ class RobinhoodCollector(object):
     def __init__(self, fs, config):
         self.fs = fs
         self.config = config
-        self.heat_ready = False
+        self.long_queries_ready = False
         with open(config) as c:
             content = c.read()
             self.server = re.findall(r'server = (.*);', content)[0]
@@ -40,6 +40,12 @@ class RobinhoodCollector(object):
         cursor.close()
         return cursor.fetchall()
 
+    def none_to_int(self, results):
+        for i in ['count', 'size', 'blocks']:
+            if results[i] is None:
+                results[i] = int(0)
+        return results
+
     def last_access(self, i):
         older_than = int(time.time() - i[1])
         newer_than = int(time.time() - i[2])
@@ -47,7 +53,7 @@ class RobinhoodCollector(object):
 sum(blocks) as blocks from ENTRIES where last_access \
 BETWEEN {} AND {}".format(newer_than, older_than))[0]
         result['range'] = i[0]
-        return result
+        return self.none_to_int(result)
 
     def last_mod(self, i):
         older_than = int(time.time() - i[1])
@@ -56,7 +62,14 @@ BETWEEN {} AND {}".format(newer_than, older_than))[0]
 sum(blocks) as blocks from ENTRIES where last_mod \
 BETWEEN {} AND {}".format(newer_than, older_than))[0]
         result['range'] = i[0]
-        return result
+        return self.none_to_int(result)
+
+    def size_hist(self, i):
+        result = self.query("select count(*) as count,sum(size) as size, \
+sum(blocks) as blocks from ENTRIES where size \
+BETWEEN {} AND {}".format(i[1], i[2]))[0]
+        result['range'] = i[0]
+        return self.none_to_int(result)
 
     def collect(self):
         changelog_count = GaugeMetricFamily(
@@ -121,33 +134,45 @@ group by lhsm_status,type")
             yield gauge_volume
             yield gauge_spc_used
 
-        if self.heat_ready:
+        if self.long_queries_ready:
             # only add them if ready, skip otherwise for faster results
-            labels_heat = ['filesystem', 'range']
+            labels = ['filesystem', 'range']
             gauge_count_heat_atime = GaugeMetricFamily(
                 'robinhood_count_heat_last_access',
                 'Files count heat by last access date range',
-                labels=labels_heat)
+                labels=labels)
             gauge_volume_heat_atime = GaugeMetricFamily(
                 'robinhood_volume_heat_last_access',
                 'Files volume heat by last access date range',
-                labels=labels_heat)
+                labels=labels)
             gauge_spc_used_heat_atime = GaugeMetricFamily(
                 'robinhood_spc_used_heat_last_access',
                 'Files space used heat by last access date range',
-                labels=labels_heat)
+                labels=labels)
             gauge_count_heat_mtime = GaugeMetricFamily(
                 'robinhood_count_heat_last_mod',
                 'Files count heat by last modification date range',
-                labels=labels_heat)
+                labels=labels)
             gauge_volume_heat_mtime = GaugeMetricFamily(
                 'robinhood_volume_heat_last_mod',
                 'Files volume heat by last modification date range',
-                labels=labels_heat)
+                labels=labels)
             gauge_spc_used_heat_mtime = GaugeMetricFamily(
                 'robinhood_spc_used_heat_last_mod',
                 'Files space used heat by last modification date range',
-                labels=labels_heat)
+                labels=labels)
+            gauge_count_size_hist = GaugeMetricFamily(
+                'robinhood_count_size_hist',
+                'Files count by size range',
+                labels=labels)
+            gauge_volume_size_hist = GaugeMetricFamily(
+                'robinhood_volume_size_hist',
+                'Files volume by size range',
+                labels=labels)
+            gauge_spc_used_size_hist = GaugeMetricFamily(
+                'robinhood_spc_used_size_hist',
+                'Files space by size',
+                labels=labels)
 
             for item in self.last_access_map:
                 gauge_count_heat_atime.add_metric(
@@ -163,6 +188,13 @@ group by lhsm_status,type")
                     [self.fs, item['range']], item['size'])
                 gauge_spc_used_heat_mtime.add_metric(
                     [self.fs, item['range']], item['blocks'])
+            for item in self.last_size_map:
+                gauge_count_size_hist.add_metric(
+                    [self.fs, item['range']], item['count'])
+                gauge_volume_size_hist.add_metric(
+                    [self.fs, item['range']], item['size'])
+                gauge_spc_used_size_hist.add_metric(
+                    [self.fs, item['range']], item['blocks'])
 
             yield gauge_count_heat_atime
             yield gauge_volume_heat_atime
@@ -170,9 +202,13 @@ group by lhsm_status,type")
             yield gauge_count_heat_mtime
             yield gauge_volume_heat_mtime
             yield gauge_spc_used_heat_mtime
-            self.heat_ready = False
+            yield gauge_count_size_hist
+            yield gauge_volume_size_hist
+            yield gauge_spc_used_size_hist
 
-    def update_heat(self):
+            self.long_queries_ready = False
+
+    def update_long_queries(self):
         date_ranges = [
             ('00s-15m', 0, 15*60),
             ('15m-01h', 15*60, 60*60),
@@ -186,10 +222,30 @@ group by lhsm_status,type")
             ('>1Y', 365*24*60*60, 10*365*24*60*60),
         ]
 
+        size_ranges = [
+            ('0B', 0, 0),
+            ('1B-10B', 1, 10**1),
+            ('1B-1kB', 10**1, 10**2),
+            ('1kB-10kB', 10**2 + 1, 10**3),
+            ('10kB-100kB', 10**3 + 1, 10**4),
+            ('100kB-1MB', 10**4 + 1, 10**5),
+            ('1MB-10MB', 10**5 + 1, 10**6),
+            ('10MB-100MB', 10**6 + 1, 10**7),
+            ('100MB-1GB', 10**7 + 1, 10**8),
+            ('1GB-10GB', 10**8 + 1, 10**9),
+            ('10GB-100GB', 10**9 + 1, 10**10),
+            ('100GB-1TB', 10**10 + 1, 10**11),
+            ('1TB-10TB', 10**11 + 1, 10**12),
+            ('10TB-100TB', 10**12 + 1, 10**13),
+            ('100TB-1PB', 10**13 + 1, 10**14),
+            ('1PB+', 10**14 + 1, 10**20),
+        ]
+
         with Pool(processes=40) as pool:
             self.last_access_map = pool.map(self.last_access, date_ranges)
             self.last_mod_map = pool.map(self.last_mod, date_ranges)
-        self.heat_ready = True
+            self.last_size_map = pool.map(self.size_hist, size_ranges)
+        self.long_queries_ready = True
 
 
 if __name__ == '__main__':
@@ -230,7 +286,7 @@ if __name__ == '__main__':
     start_http_server(args.port)
     rbh_collector = RobinhoodCollector(fs, config)
     REGISTRY.register(rbh_collector)
-    rbh_collector.update_heat()
+    rbh_collector.update_long_queries()
     while True:
         time.sleep(3600)
-        rbh_collector.update_heat()
+        rbh_collector.update_long_queries()
