@@ -12,6 +12,8 @@ BuildArch:      noarch
 BuildRequires:	systemd
 Requires:       python3
 Requires:       python3-pip
+Requires:       python3-PyMySQL
+Requires:       python3-prometheus_client
 
 %description
 Prometheus exporter for Robinhood stats on Lustre
